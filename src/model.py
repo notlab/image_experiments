@@ -42,3 +42,37 @@ def conv_net_1(inputs):
         biases = tf.get_variable('biases', [64], tf.constant_initializer(0.1))
         pre_act = tf.nn.bias_add(conv, biases)
         conv2 = tf.nn.relu(pre_act, name=scope.name)
+
+    # Norm 2
+    # no shape change
+    norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name='norm2')
+    
+    # Pool 2
+    # if C0 = ceil(ceil(IMG_SIZE / 2) / 2) then output shape = [N, C0, C0, 64]
+    pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool2')
+
+    # Fully connected 1
+    # reshapes input to [N, C0 * C0 * 64], outputs shape [384]
+    with tf.variable_scope('local3') as scope:
+        # Move everything into depth so we can perform a single matrix multiply.
+        reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
+        dim = reshape.get_shape()[1].value
+        weights = _variable_with_weight_decay('weights', shape=[dim, 384], stddev=0.04, wd=0.004)
+        biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
+        local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
+
+    # Fully connected 2
+    # input [348] -> output [192]
+    with tf.variable_scope('local4') as scope:
+        weights = _variable_with_weight_decay('weights', shape=[384, 192], stddev=0.04, wd=0.004)
+        biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
+        local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
+
+    # Compute unscaled logits. Return unscaled logits (cross-entropy loss function will softmax our
+    # logits for efficiecy). 
+    with tf.variable_scope('softmax_linear') as scope:
+        weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES], stddev=1/192.0, wd=0.0)
+        biases = _variable_on_cpu('biases', [NUM_CLASSES], tf.constant_initializer(0.0))
+        softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
+
+    return softmax_linear
