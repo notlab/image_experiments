@@ -1,8 +1,6 @@
 import tensorflow as tf
 
-from loader import read_model_config
-
-CONFIG = read_config()['STOCK']
+from loader import GEN_CONFIG
 
 
 def _get_kernel(name, shape, stddev, reg=None):
@@ -94,17 +92,17 @@ def loss(logits, labels):
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 def train(total_loss, global_step):
-    batches_per_epoch = CONFIG['EPOCH_SIZE_TRAIN'] / CONFIG['BATCH_SIZE']
+    batches_per_epoch = GEN_CONFIG['EPOCH_SIZE_TRAIN'] / GEN_CONFIG['BATCH_SIZE']
     
     # decayed_learning_rate = learning_rate * decay_rate ^ (global_step / decay_steps)
     # so if you want 5 decays, and you're going to take 5000 steps, decay_steps should be 5000/5 = 1000
-    decay_steps = int(batches_per_epoch * CONFIG['EPOCHS_PER_DECAY'])
+    decay_steps = int(batches_per_epoch * GEN_CONFIG['EPOCHS_PER_DECAY'])
 
     # Decay the learning rate exponentially based on the number of steps.
-    lr = tf.train.exponential_decay(CONFIG['INITIAL_LEARNING_RATE'],
+    lr = tf.train.exponential_decay(GEN_CONFIG['INITIAL_LEARNING_RATE'],
                                     global_step,
                                     decay_steps,
-                                    CONFIG['LEARNING_RATE_DECAY_FACTOR'],
+                                    GEN_CONFIG['LEARNING_RATE_DECAY_FACTOR'],
                                     staircase=True)
 
     opt = tf.train.GradientDescentOptimizer(lr)

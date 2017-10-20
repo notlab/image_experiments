@@ -5,21 +5,10 @@ import tensorflow as tf
 
 CONFIG_FILE = './config.ini'
 
-class ImageRecord:
+CONFIG = read_config()
+GEN_CONFIG = CONFIG['GENERAL']
+CIFAR_CONFIG = CONFIG['CIFAR_10']
 
-    def __init__(self, height, width=None, depth=3, uint8image=None, label=None, key=None):
-        self.height = height
-        self.width = width if width else height # use height as width if image is square
-        self.depth = depth
-        self.uint8image = uint8image
-        self.label = label
-        self.key = key
-    
-
-def read_config():
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    return config
 
 def _get_cifar_10_files(data_dir):
     """
@@ -28,17 +17,17 @@ def _get_cifar_10_files(data_dir):
     """
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
-def load_cifar_10():
-    config = read_config()['CIFAR_10']
 
-    data_dir = config['CIFAR_10_DATA_DIR']
+
+def load_single_cifar_10(apply_distortions=True):
+    data_dir = CIFAR_CONFIG['CIFAR_10_DATA_DIR']
     fnames = _get_cifar_10_files(data_dir)
     file_queue = tf.train.string_input_producer(fnames)
     
-    height = int(config['IMG_HEIGHT'])
-    width = int(config['IMG_WIDTH'])
-    depth = int(config['IMG_DEPTH'])
-    num_label_bytes = int(config['LABEL_BYTES'])
+    height = int(CIFAR_CONFIG['IMG_HEIGHT'])
+    width = int(CIFAR_CONFIG['IMG_WIDTH'])
+    depth = int(CIFAR_CONFIG['IMG_DEPTH'])
+    num_label_bytes = int(CIFAR_CONFIG['LABEL_BYTES'])
 
     num_image_bytes = height * width * depth
     num_record_bytes = num_image_bytes + num_label_bytes
@@ -46,10 +35,55 @@ def load_cifar_10():
     key, value = reader.read(file_queue)
 
     record_bytes = tf.decode_raw(value, tf.uint8)
-    label = tf.cast(tf.strided_slice(record_bytes, [0], [num_label_bytes]), tf.int32)
+    label = tf.cast(tf.strided_slice(record_bytes, [0], [num_label_bytes]), tf.float32)
 
     depth_major = tf.reshape(tf.strided_slice(record_bytes, [num_label_bytes], [num_label_bytes + num_image_bytes]),
                              [depth, height, width])
-    uint8image = tf.transpose(depth_major, [1, 2, 0])
+    float32image = tf.transpose(depth_major, [1, 2, 0])
+
+    if apply_distortions:
+        # Apply a bunch of random distortions to the image for training. 
+        # Randomly crop a section of the image.
+        float32image = tf.random_crop(float32image, [height, width, 3])
+
+        # Randomly flip the image horizontally.
+        float32image = tf.image.random_flip_left_right(float32image)
+        
+        # Subtract off the mean and divide by the variance of the pixels.
+        float32image = tf.image.per_image_standardization(float32image)
     
-    return ImageRecord(height=height, width=width, depth=depth, uint8image=uint8image, label=label, key=key)
+    return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
+
+def load_batch_cifar_10(apply_distortions=True):
+    single_cifar = load_single_cifar_10(apply_distortions)
+    batch_size = GEN_CONFIG['BATCH_SIZE']
+    min_fraction_images_in_queue = 0.4
+    min_queue_examples = int(GEN_CONFIG['EPOCH_SIZE_TRAIN'] * min_fraction_images_in_queue)
+
+     print('Filling queue with %d CIFAR images before starting to train. This will take a few minutes.'
+           % min_queue_examples)
+    
+    image_batch, label_batch = tf.train.shuffle_batch([image, label],
+                                                      batch_size=batch_size
+                                                      num_threads=16,
+                                                      capacity=min_queue_examples + 3 * batch_size,
+                                                      min_after_dequeue=min_queue_examples)
+
+    return image_batch, tf.reshape(label_batch, [batch_size])
+
+def read_config():
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    return config
+
+
+class ImageRecord:
+
+    def __init__(self, height, width=None, depth=3, float32image=None, label=None, key=None):
+        self.height = height
+        self.width = width if width else height # use height as width if image is square
+        self.depth = depth
+        self.float32image = float32image
+        self.label = label
+        self.key = key
+    
