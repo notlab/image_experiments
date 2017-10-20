@@ -1,3 +1,4 @@
+import os
 import configparser
 
 import tensorflow as tf
@@ -6,7 +7,7 @@ CONFIG_FILE = './config.ini'
 
 class ImageRecord:
 
-    def __init__(self, height, width=None, depth, uint8image, label, key):
+    def __init__(self, height, width=None, depth=3, uint8image=None, label=None, key=None):
         self.height = height
         self.width = width if width else height # use height as width if image is square
         self.depth = depth
@@ -34,19 +35,20 @@ def load_cifar_10():
     fnames = _get_cifar_10_files(data_dir)
     file_queue = tf.train.string_input_producer(fnames)
     
-    height = config['IMG_HEIGHT']
-    width = config['IMG_WIDTH']
-    depth = config['IMG_DEPTH']
-    label_bytes = config['LABEL_BYTES']
+    height = int(config['IMG_HEIGHT'])
+    width = int(config['IMG_WIDTH'])
+    depth = int(config['IMG_DEPTH'])
+    num_label_bytes = int(config['LABEL_BYTES'])
 
-    num_record_bytes = result.height * result.width * result.depth + label_bytes
+    num_image_bytes = height * width * depth
+    num_record_bytes = num_image_bytes + num_label_bytes
     reader = tf.FixedLengthRecordReader(record_bytes=num_record_bytes)
     key, value = reader.read(file_queue)
 
     record_bytes = tf.decode_raw(value, tf.uint8)
-    label = tf.cast(tf.strided_slice(record_bytes, [0]), [label_bytes])
+    label = tf.cast(tf.strided_slice(record_bytes, [0], [num_label_bytes]), tf.int32)
 
-    depth_major = tf.reshape(tf.strided_slice(record_bytes, [label_bytes], [label_bytes + image_bytes]),
+    depth_major = tf.reshape(tf.strided_slice(record_bytes, [num_label_bytes], [num_label_bytes + num_image_bytes]),
                              [depth, height, width])
     uint8image = tf.transpose(depth_major, [1, 2, 0])
     
