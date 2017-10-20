@@ -1,5 +1,10 @@
 import tensorflow as tf
 
+from loader import read_model_config
+
+CONFIG = read_config()['STOCK']
+
+
 def _get_kernel(name, shape, stddev, reg=None):
     initializer = tf.truncated_normal_initializer(stddev=stddev)
     var = tf.get_variable(name, shape, initializer)
@@ -11,7 +16,7 @@ def _get_kernel(name, shape, stddev, reg=None):
     return var
     
 
-def conv_net_1(inputs):
+def stock_net(inputs):
     """
     Args:
       inputs: expects input with shape [ batch_size, IMG_SIZE, IMG_SIZE, 3 ]. 
@@ -76,3 +81,36 @@ def conv_net_1(inputs):
         softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
 
     return softmax_linear
+
+def loss(logits, labels):
+    # Calculate the average cross entropy loss across the batch.
+    labels = tf.cast(labels, tf.int64)
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits, name='cross_entropy_per_example')
+    ce_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+
+    # The total loss is the error function (cross-entropy) plus the regularization terms from the
+    # conv layer filters. Those were stored in the 'losses' collection. (See _get_kernel())
+    tf.add_to_collection('losses', ce_mean)
+    return tf.add_n(tf.get_collection('losses'), name='total_loss')
+
+def train(total_loss, global_step):
+    batches_per_epoch = CONFIG['EPOCH_SIZE_TRAIN'] / CONFIG['BATCH_SIZE']
+    
+    # decayed_learning_rate = learning_rate * decay_rate ^ (global_step / decay_steps)
+    # so if you want 5 decays, and you're going to take 5000 steps, decay_steps should be 5000/5 = 1000
+    decay_steps = int(batches_per_epoch * CONFIG['EPOCHS_PER_DECAY'])
+
+    # Decay the learning rate exponentially based on the number of steps.
+    lr = tf.train.exponential_decay(CONFIG['INITIAL_LEARNING_RATE'],
+                                    global_step,
+                                    decay_steps,
+                                    CONFIG['LEARNING_RATE_DECAY_FACTOR'],
+                                    staircase=True)
+
+    opt = tf.train.GradientDescentOptimizer(lr)
+    grads = opt.compute_gradients(total_loss)
+    apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+
+    return apply_gradient_op
+
+    
