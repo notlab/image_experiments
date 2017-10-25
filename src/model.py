@@ -116,6 +116,13 @@ def stock_cifar10_train(total_loss, global_step):
     grads = opt.compute_gradients(total_loss)
     apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
 
-    return apply_gradient_op
+    variable_averages = tf.train.ExponentialMovingAverage(float(CIFAR10_CONFIG['MOVING_AVERAGE_DECAY']), global_step)
+    variables_averages_op = variable_averages.apply(tf.trainable_variables())
+
+    # Tie off the training operations.
+    with tf.control_dependencies([apply_gradient_op, variables_averages_op]): 
+        end_op = tf.no_op(name='train')
+    
+    return end_op
 
     
