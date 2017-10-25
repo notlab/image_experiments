@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from loader import GEN_CONFIG
+from loader import GEN_CONFIG, CIFAR10_CONFIG
 
 def _get_tn_var(name, shape, stddev, reg=None):
     '''
@@ -10,7 +10,7 @@ def _get_tn_var(name, shape, stddev, reg=None):
     var = tf.get_variable(name, shape, initializer=initializer, dtype=tf.float32)
 
     if reg is not None:
-        weight_penalty = tf.multiply(tf.nn.l2_loss(var, reg, name='weight_loss'))
+        weight_penalty = tf.multiply(tf.nn.l2_loss(var), reg, name='weight_loss')
         tf.add_to_collection('losses', weight_penalty)
         
     return var
@@ -32,7 +32,7 @@ def stock_cifar10(inputs):
     with tf.variable_scope('conv1') as scope:
         kernel = _get_kernel('weights', shape=[5, 5, 3, 64], stddev=5e-2, reg=0.0)
         conv = tf.nn.conv2d(inputs, kernel, [1, 1, 1, 1], padding='SAME')
-        biases = tf.get_variable('biases', [64], tf.constant_initializer(0.0))
+        biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.0))
         pre_act = tf.nn.bias_add(conv, biases)
         conv1 = tf.nn.relu(pre_act, name=scope.name)
 
@@ -49,7 +49,7 @@ def stock_cifar10(inputs):
     with tf.variable_scope('conv2') as scope:
         kernel = _get_kernel('weights', shape=[5, 5, 64, 64], stddev=5e-2, reg=0.0)
         conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
-        biases = tf.get_variable('biases', [64], tf.constant_initializer(0.1))
+        biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.1))
         pre_act = tf.nn.bias_add(conv, biases)
         conv2 = tf.nn.relu(pre_act, name=scope.name)
 
@@ -65,7 +65,7 @@ def stock_cifar10(inputs):
     # reshapes input to [N, C0 * C0 * 64], outputs shape [384]
     with tf.variable_scope('local3') as scope:
         # Move everything into depth so we can perform a single matrix multiply.
-        reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
+        reshape = tf.reshape(pool2, [int(GEN_CONFIG['BATCH_SIZE']), -1])
         dim = reshape.get_shape()[1].value
         weights = _get_tn_var('weights', shape=[dim, 384], stddev=0.04, reg=0.004)
         biases = tf.get_variable('biases', [384], initializer=tf.constant_initializer(0.1), dtype=tf.float32)
@@ -81,8 +81,8 @@ def stock_cifar10(inputs):
     # Compute unscaled logits. Return unscaled logits (cross-entropy loss function will softmax our
     # logits for efficiecy). 
     with tf.variable_scope('softmax_linear') as scope:
-        weights = _get_tn_var('weights', [192, NUM_CLASSES], stddev=1/192.0, reg=0.0)
-        biases = tf.get_variable('biases', [NUM_CLASSES], initializer=tf.constant_initializer(0.0), dtype=tf.float32)
+        weights = _get_tn_var('weights', [192, int(CIFAR10_CONFIG['NUM_CLASSES'])], stddev=1/192.0, reg=0.0)
+        biases = tf.get_variable('biases', [int(CIFAR10_CONFIG['NUM_CLASSES'])], initializer=tf.constant_initializer(0.0), dtype=tf.float32)
         softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
 
     return softmax_linear
@@ -99,17 +99,17 @@ def stock_cifar10_loss(logits, labels):
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 def stock_cifar10_train(total_loss, global_step):
-    batches_per_epoch = GEN_CONFIG['EPOCH_SIZE_TRAIN'] / GEN_CONFIG['BATCH_SIZE']
+    batches_per_epoch = int(GEN_CONFIG['EPOCH_SIZE_TRAIN']) / int(GEN_CONFIG['BATCH_SIZE'])
     
     # decayed_learning_rate = learning_rate * decay_rate ^ (global_step / decay_steps)
     # so if you want 5 decays, and you're going to take 5000 steps, decay_steps should be 5000/5 = 1000
-    decay_steps = int(batches_per_epoch * GEN_CONFIG['EPOCHS_PER_DECAY'])
+    decay_steps = int(batches_per_epoch * int(GEN_CONFIG['EPOCHS_PER_DECAY_STEP']))
 
     # Decay the learning rate exponentially based on the number of steps.
-    lr = tf.train.exponential_decay(GEN_CONFIG['INITIAL_LEARNING_RATE'],
+    lr = tf.train.exponential_decay(float(GEN_CONFIG['INITIAL_LEARNING_RATE']),
                                     global_step,
                                     decay_steps,
-                                    GEN_CONFIG['LEARNING_RATE_DECAY_FACTOR'],
+                                    float(GEN_CONFIG['LEARNING_RATE_DECAY_FACTOR']),
                                     staircase=True)
 
     opt = tf.train.GradientDescentOptimizer(lr)
