@@ -38,7 +38,7 @@ def train_stock_cifar10():
         train_op = model.stock_cifar10_train(loss, global_step)
 
         with tf.train.MonitoredTrainingSession(checkpoint_dir=CIFAR10_CONFIG['CHECKPOINT_DIR'],
-                                               hooks=[tf.train.StopAtStepHook(last_step=CIFAR10_CONFIG['MAX_STEPS'),
+                                               hooks=[tf.train.StopAtStepHook(last_step=CIFAR10_CONFIG['MAX_STEPS']),
                                                       tf.train.NanTensorHook(loss),
                                                       _LoggerHook()]) as mon_sess:
             while not mon_sess.should_stop():

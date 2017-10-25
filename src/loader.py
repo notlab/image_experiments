@@ -4,8 +4,9 @@ import configparser
 import tensorflow as tf
 
 CONFIG_FILE = './config.ini'
+CONFIG = configparser.ConfigParser()
+CONFIG.read(CONFIG_FILE)
 
-CONFIG = read_config()
 GEN_CONFIG = CONFIG['GENERAL']
 CIFAR10_CONFIG = CONFIG['CIFAR_10']
 
@@ -18,7 +19,7 @@ def _get_cifar10_files(data_dir):
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
 def load_single_cifar10(apply_distortions=True):
-    data_dir = CIFAR10_CONFIG['CIFAR_10_DATA_DIR']
+    data_dir = CIFAR10_CONFIG['DATA_DIR']
     fnames = _get_cifar10_files(data_dir)
     file_queue = tf.train.string_input_producer(fnames)
     
@@ -49,30 +50,28 @@ def load_single_cifar10(apply_distortions=True):
         
         # Subtract off the mean and divide by the variance of the pixels.
         float32image = tf.image.per_image_standardization(float32image)
+
+    float32image.set_shape([height, width, depth])
+    label.set_shape([1])
     
     return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
 
 def load_batch_cifar10(apply_distortions=True):
-    single_cifar = load_single_cifar_10(apply_distortions)
-    batch_size = GEN_CONFIG['BATCH_SIZE']
+    single_cifar = load_single_cifar10(apply_distortions)
+    batch_size = int(GEN_CONFIG['BATCH_SIZE'])
     min_fraction_images_in_queue = 0.4
-    min_queue_examples = int(GEN_CONFIG['EPOCH_SIZE_TRAIN'] * min_fraction_images_in_queue)
+    min_queue_examples = int(int(GEN_CONFIG['EPOCH_SIZE_TRAIN']) * min_fraction_images_in_queue)
 
-     print('Filling queue with %d CIFAR images before starting to train. This will take a few minutes.'
-           % min_queue_examples)
+    print('Filling queue with %d CIFAR images before starting to train. This will take a few minutes.'
+          % min_queue_examples)
     
-    image_batch, label_batch = tf.train.shuffle_batch([image, label],
-                                                      batch_size=batch_size
+    image_batch, label_batch = tf.train.shuffle_batch([single_cifar.float32image, single_cifar.label],
+                                                      batch_size=batch_size,
                                                       num_threads=16,
                                                       capacity=min_queue_examples + 3 * batch_size,
                                                       min_after_dequeue=min_queue_examples)
 
     return image_batch, tf.reshape(label_batch, [batch_size])
-
-def read_config():
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    return config
 
 
 class ImageRecord:
