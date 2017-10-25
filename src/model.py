@@ -14,7 +14,7 @@ def _get_kernel(name, shape, stddev, reg=None):
     return var
     
 
-def stock_net(inputs):
+def stock_cifar10(inputs):
     """
     Args:
       inputs: expects input with shape [ batch_size, IMG_SIZE, IMG_SIZE, 3 ]. 
@@ -80,7 +80,7 @@ def stock_net(inputs):
 
     return softmax_linear
 
-def loss(logits, labels):
+def stock_cifar10_loss(logits, labels):
     # Calculate the average cross entropy loss across the batch.
     labels = tf.cast(labels, tf.int64)
     cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits, name='cross_entropy_per_example')
@@ -91,7 +91,7 @@ def loss(logits, labels):
     tf.add_to_collection('losses', ce_mean)
     return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
-def train(total_loss, global_step):
+def stock_cifar10_train(total_loss, global_step):
     batches_per_epoch = GEN_CONFIG['EPOCH_SIZE_TRAIN'] / GEN_CONFIG['BATCH_SIZE']
     
     # decayed_learning_rate = learning_rate * decay_rate ^ (global_step / decay_steps)

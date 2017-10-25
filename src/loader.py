@@ -7,25 +7,25 @@ CONFIG_FILE = './config.ini'
 
 CONFIG = read_config()
 GEN_CONFIG = CONFIG['GENERAL']
-CIFAR_CONFIG = CONFIG['CIFAR_10']
+CIFAR10_CONFIG = CONFIG['CIFAR_10']
 
 
-def _get_cifar_10_files(data_dir):
+def _get_cifar10_files(data_dir):
     """
     Returns:
         a list containing paths to each of the cifar-10 files.
     """
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
-def load_single_cifar_10(apply_distortions=True):
-    data_dir = CIFAR_CONFIG['CIFAR_10_DATA_DIR']
-    fnames = _get_cifar_10_files(data_dir)
+def load_single_cifar10(apply_distortions=True):
+    data_dir = CIFAR10_CONFIG['CIFAR_10_DATA_DIR']
+    fnames = _get_cifar10_files(data_dir)
     file_queue = tf.train.string_input_producer(fnames)
     
-    height = int(CIFAR_CONFIG['IMG_HEIGHT'])
-    width = int(CIFAR_CONFIG['IMG_WIDTH'])
-    depth = int(CIFAR_CONFIG['IMG_DEPTH'])
-    num_label_bytes = int(CIFAR_CONFIG['LABEL_BYTES'])
+    height = int(CIFAR10_CONFIG['IMG_HEIGHT'])
+    width = int(CIFAR10_CONFIG['IMG_WIDTH'])
+    depth = int(CIFAR10_CONFIG['IMG_DEPTH'])
+    num_label_bytes = int(CIFAR10_CONFIG['LABEL_BYTES'])
 
     num_image_bytes = height * width * depth
     num_record_bytes = num_image_bytes + num_label_bytes
@@ -52,7 +52,7 @@ def load_single_cifar_10(apply_distortions=True):
     
     return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
 
-def load_batch_cifar_10(apply_distortions=True):
+def load_batch_cifar10(apply_distortions=True):
     single_cifar = load_single_cifar_10(apply_distortions)
     batch_size = GEN_CONFIG['BATCH_SIZE']
     min_fraction_images_in_queue = 0.4
