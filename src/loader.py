@@ -17,8 +17,6 @@ def _get_cifar_10_files(data_dir):
     """
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
-
-
 def load_single_cifar_10(apply_distortions=True):
     data_dir = CIFAR_CONFIG['CIFAR_10_DATA_DIR']
     fnames = _get_cifar_10_files(data_dir)
