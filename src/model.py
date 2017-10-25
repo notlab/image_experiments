@@ -125,4 +125,6 @@ def stock_cifar10_train(total_loss, global_step):
     
     return end_op
 
+
+
     

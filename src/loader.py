@@ -11,18 +11,21 @@ GEN_CONFIG = CONFIG['GENERAL']
 CIFAR10_CONFIG = CONFIG['CIFAR_10']
 
 
-def _get_cifar10_files(data_dir):
-    """
+def _get_cifar10_train_files(data_dir):
+    '''
     Returns:
-        a list containing paths to each of the cifar-10 files.
-    """
+        a list containing paths to each of the cifar-10 training data files.
+    '''
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
-def load_single_cifar10(apply_distortions=True):
-    data_dir = CIFAR10_CONFIG['DATA_DIR']
-    fnames = _get_cifar10_files(data_dir)
-    file_queue = tf.train.string_input_producer(fnames)
-    
+def _get_cifar10_eval_files(data_dir):
+    '''
+    Returns:
+        a list containing paths to each of the cifar-10 training data files.
+    '''
+    return [ os.path.join(data_dir, 'test_batch.bin') ] 
+
+def load_cifar10(file_queue, apply_distortions=True):
     height = int(CIFAR10_CONFIG['IMG_HEIGHT'])
     width = int(CIFAR10_CONFIG['IMG_WIDTH'])
     depth = int(CIFAR10_CONFIG['IMG_DEPTH'])
@@ -40,6 +43,9 @@ def load_single_cifar10(apply_distortions=True):
                              [depth, height, width])
     float32image = tf.transpose(depth_major, [1, 2, 0])
 
+    # Subtract off the mean and divide by the variance of the pixels.
+    float32image = tf.image.per_image_standardization(float32image)
+
     if apply_distortions:
         # Apply a bunch of random distortions to the image for training. 
         # Randomly crop a section of the image.
@@ -47,17 +53,22 @@ def load_single_cifar10(apply_distortions=True):
 
         # Randomly flip the image horizontally.
         float32image = tf.image.random_flip_left_right(float32image)
-        
-        # Subtract off the mean and divide by the variance of the pixels.
-        float32image = tf.image.per_image_standardization(float32image)
 
     float32image.set_shape([height, width, depth])
     label.set_shape([1])
     
     return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
 
-def load_batch_cifar10(apply_distortions=True):
-    single_cifar = load_single_cifar10(apply_distortions)
+def load_batch_cifar10_train(apply_distortions=True):
+    data_dir = CIFAR10_CONFIG['DATA_DIR']
+    fnames = _get_cifar10_train_files(data_dir)
+
+    for f in fnames:
+        if not tf.gfile.Exists(f):
+            raise ValueError('Failed to find file: ' + f)
+  
+    file_queue = tf.train.string_input_producer(fnames)
+    cifar = load_cifar10(file_queue, apply_distortions)
     batch_size = int(GEN_CONFIG['BATCH_SIZE'])
     min_fraction_images_in_queue = 0.4
     min_queue_examples = int(int(GEN_CONFIG['EPOCH_SIZE_TRAIN']) * min_fraction_images_in_queue)
@@ -65,7 +76,7 @@ def load_batch_cifar10(apply_distortions=True):
     print('Filling queue with %d CIFAR images before starting to train. This will take a few minutes.'
           % min_queue_examples)
     
-    image_batch, label_batch = tf.train.shuffle_batch([single_cifar.float32image, single_cifar.label],
+    image_batch, label_batch = tf.train.shuffle_batch([cifar.float32image, cifar.label],
                                                       batch_size=batch_size,
                                                       num_threads=16,
                                                       capacity=min_queue_examples + 3 * batch_size,
@@ -73,7 +84,31 @@ def load_batch_cifar10(apply_distortions=True):
 
     return image_batch, tf.reshape(label_batch, [batch_size])
 
+def load_batch_cifar10_eval(apply_distortions=False):
+    '''
+    Load the cifar10 test data set.
+    '''
+    data_dir = CIFAR10_CONFIG['DATA_DIR']
+    fnames = _get_cifar10_eval_files(data_dir)
 
+    for f in fnames:
+        if not tf.gfile.Exists(f):
+            raise ValueError('Failed to find file: ' + f)
+
+    file_queue = tf.train.string_input_producer(fnames)
+    cifar = load_cifar10(file_queue, apply_distortions)
+    batch_size = int(GEN_CONFIG['BATCH_SIZE'])
+    min_fraction_images_in_queue = 0.4
+    min_queue_examples = int(int(GEN_CONFIG['EPOCH_SIZE_TRAIN']) * min_fraction_images_in_queue)
+
+    image_batch, label_batch = tf.train.batch([cifar.float32image, cifar.label],
+                                              batch_size=batch_size,
+                                              num_threads=16
+                                              capacity=min_queue_examples + 3 * batch_size)
+
+    return image_batch, tf.reshape(label_batch, [batch_size])
+
+    
 class ImageRecord:
 
     def __init__(self, height, width=None, depth=3, float32image=None, label=None, key=None):
