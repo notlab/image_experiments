@@ -2,24 +2,31 @@ import tensorflow as tf
 
 from loader import GEN_CONFIG
 
-
-def _get_kernel(name, shape, stddev, reg=None):
+def _get_tn_var(name, shape, stddev, reg=None):
+    '''
+    Get a variable with truncated normal initializer and optional l2 regularization. 
+    '''
     initializer = tf.truncated_normal_initializer(stddev=stddev)
-    var = tf.get_variable(name, shape, initializer)
+    var = tf.get_variable(name, shape, initializer=initializer, dtype=tf.float32)
 
     if reg is not None:
         weight_penalty = tf.multiply(tf.nn.l2_loss(var, reg, name='weight_loss'))
         tf.add_to_collection('losses', weight_penalty)
         
     return var
-    
+
+def _get_kernel(name, shape, stddev, reg=None):
+    '''
+    Alias for _get_tn_var. 
+    '''
+    return _get_tn_var(name, shape, stddev, reg=reg)
 
 def stock_cifar10(inputs):
-    """
+    '''
     Args:
       inputs: expects input with shape [ batch_size, IMG_SIZE, IMG_SIZE, 3 ]. 
               Note inputs must be sqaure. 
-    """
+    '''
     # Conv 1
     # output shape = [N, IMG_SIZE, IMG_SIZE, 64]
     with tf.variable_scope('conv1') as scope:
@@ -40,7 +47,7 @@ def stock_cifar10(inputs):
     # Conv 2
     # output shape = [N, C, C, 64]
     with tf.variable_scope('conv2') as scope:
-        kernel = _get_kernel('weights', shape=[5, 5, 64, 64], stddev=5e-2, wd=0.0)
+        kernel = _get_kernel('weights', shape=[5, 5, 64, 64], stddev=5e-2, reg=0.0)
         conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
         biases = tf.get_variable('biases', [64], tf.constant_initializer(0.1))
         pre_act = tf.nn.bias_add(conv, biases)
@@ -60,22 +67,22 @@ def stock_cifar10(inputs):
         # Move everything into depth so we can perform a single matrix multiply.
         reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
         dim = reshape.get_shape()[1].value
-        weights = _variable_with_weight_decay('weights', shape=[dim, 384], stddev=0.04, wd=0.004)
-        biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
+        weights = _get_tn_var('weights', shape=[dim, 384], stddev=0.04, reg=0.004)
+        biases = tf.get_variable('biases', [384], initializer=tf.constant_initializer(0.1), dtype=tf.float32)
         local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
 
     # Fully connected 2
     # input [348] -> output [192]
     with tf.variable_scope('local4') as scope:
-        weights = _variable_with_weight_decay('weights', shape=[384, 192], stddev=0.04, wd=0.004)
-        biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
+        weights = _get_tn_var('weights', shape=[384, 192], stddev=0.04, reg=0.004)
+        biases = tf.get_variable('biases', [192], initializer=tf.constant_initializer(0.1), dtype=tf.float32)
         local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
 
     # Compute unscaled logits. Return unscaled logits (cross-entropy loss function will softmax our
     # logits for efficiecy). 
     with tf.variable_scope('softmax_linear') as scope:
-        weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES], stddev=1/192.0, wd=0.0)
-        biases = _variable_on_cpu('biases', [NUM_CLASSES], tf.constant_initializer(0.0))
+        weights = _get_tn_var('weights', [192, NUM_CLASSES], stddev=1/192.0, reg=0.0)
+        biases = tf.get_variable('biases', [NUM_CLASSES], initializer=tf.constant_initializer(0.0), dtype=tf.float32)
         softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
 
     return softmax_linear
