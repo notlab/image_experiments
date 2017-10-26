@@ -38,7 +38,7 @@ class _LoggerHook(tf.train.SessionRunHook):
 def train_stock_cifar10():
     with tf.Graph().as_default():
         global_step = tf.contrib.framework.get_or_create_global_step()
-        images, labels = loader.load_batch_cifar10()
+        images, labels = loader.load_batch_cifar10_train()
 
         logits = model.stock_cifar10(images)
         loss = model.stock_cifar10_loss(logits, labels)
