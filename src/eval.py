@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 import loader, model
 from loader import GEN_CONFIG, CIFAR10_CONFIG
@@ -45,10 +46,10 @@ def _do_eval_stock_cifar10(saver, top_k_op):
         coord.request_stop()
         coord.join(threads, stop_grace_period_secs=10)
 
-def eval_stock_cifar10():
+def eval_stock_cifar10(run_once=True):
     with tf.Graph().as_default() as g:
         images, labels = loader.load_batch_cifar10_eval()
-        logits = model.stock_cifar(images)
+        logits = model.stock_cifar10(images)
         top_k_op = tf.nn.in_top_k(logits, labels, 1)
 
         variable_averages = tf.train.ExponentialMovingAverage(float(CIFAR10_CONFIG['MOVING_AVERAGE_DECAY']))
@@ -57,7 +58,7 @@ def eval_stock_cifar10():
         saver = tf.train.Saver(variables_to_restore)
 
         while True:
-            #do some stuff (saver, top_k_op)
-            if FLAGS.run_once:
+            _do_eval_stock_cifar10(saver, top_k_op)
+            if run_once:
                 break
             time.sleep(5000)

@@ -37,7 +37,7 @@ def load_cifar10(file_queue, apply_distortions=True):
     key, value = reader.read(file_queue)
 
     record_bytes = tf.decode_raw(value, tf.uint8)
-    label = tf.cast(tf.strided_slice(record_bytes, [0], [num_label_bytes]), tf.float32)
+    label = tf.cast(tf.strided_slice(record_bytes, [0], [num_label_bytes]), tf.int32)
 
     depth_major = tf.reshape(tf.strided_slice(record_bytes, [num_label_bytes], [num_label_bytes + num_image_bytes]),
                              [depth, height, width])
@@ -103,7 +103,7 @@ def load_batch_cifar10_eval(apply_distortions=False):
 
     image_batch, label_batch = tf.train.batch([cifar.float32image, cifar.label],
                                               batch_size=batch_size,
-                                              num_threads=16
+                                              num_threads=16,
                                               capacity=min_queue_examples + 3 * batch_size)
 
     return image_batch, tf.reshape(label_batch, [batch_size])
