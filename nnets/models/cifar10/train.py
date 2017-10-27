@@ -1,9 +1,15 @@
-import tensorflow as tf
 import time
 from datetime import datetime
+import os
 
-import loader, model
-from loader import GEN_CONFIG, CIFAR10_CONFIG
+import tensorflow as tf
+
+from models.common import ROOT_DIR, CONFIG
+import models.cifar10.loader as loader
+import models.cifar10.model as model
+
+GEN_CONFIG = CONFIG['GENERAL']
+CIFAR10_CONFIG = CONFIG['CIFAR_10']
 
 class _LoggerHook(tf.train.SessionRunHook):
     """Logs loss and runtime of a train op."""
@@ -38,13 +44,15 @@ class _LoggerHook(tf.train.SessionRunHook):
 def train_stock_cifar10():
     with tf.Graph().as_default():
         global_step = tf.contrib.framework.get_or_create_global_step()
-        images, labels = loader.load_batch_cifar10_train()
+        images, labels = loader.load_train_batch()
 
         logits = model.stock_cifar10(images)
         loss = model.stock_cifar10_loss(logits, labels)
         train_op = model.stock_cifar10_train(loss, global_step)
 
-        with tf.train.MonitoredTrainingSession(checkpoint_dir=CIFAR10_CONFIG['CHECKPOINT_DIR'],
+        checkpoint_dir = os.path.join(ROOT_DIR, CIFAR10_CONFIG['CHECKPOINT_DIR'])
+
+        with tf.train.MonitoredTrainingSession(checkpoint_dir=checkpoint_dir,
                                                hooks=[tf.train.StopAtStepHook(last_step=int(CIFAR10_CONFIG['MAX_STEPS'])),
                                                       tf.train.NanTensorHook(loss),
                                                       _LoggerHook(loss)]) as mon_sess:

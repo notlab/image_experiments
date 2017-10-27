@@ -1,24 +1,20 @@
 import os
-import configparser
 
 import tensorflow as tf
 
-CONFIG_FILE = './config.ini'
-CONFIG = configparser.ConfigParser()
-CONFIG.read(CONFIG_FILE)
+from models.common import ImageRecord, ROOT_DIR, CONFIG
 
 GEN_CONFIG = CONFIG['GENERAL']
 CIFAR10_CONFIG = CONFIG['CIFAR_10']
 
-
-def _get_cifar10_train_files(data_dir):
+def _get_train_files(data_dir):
     '''
     Returns:
         a list containing paths to each of the cifar-10 training data files.
     '''
     return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
 
-def _get_cifar10_eval_files(data_dir):
+def _get_eval_files(data_dir):
     '''
     Returns:
         a list containing paths to each of the cifar-10 training data files.
@@ -59,9 +55,9 @@ def load_cifar10(file_queue, apply_distortions=True):
     
     return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
 
-def load_batch_cifar10_train(apply_distortions=True):
+def load_train_batch(apply_distortions=True):
     data_dir = CIFAR10_CONFIG['DATA_DIR']
-    fnames = _get_cifar10_train_files(data_dir)
+    fnames = _get_train_files(data_dir)
 
     for f in fnames:
         if not tf.gfile.Exists(f):
@@ -84,12 +80,12 @@ def load_batch_cifar10_train(apply_distortions=True):
 
     return image_batch, tf.reshape(label_batch, [batch_size])
 
-def load_batch_cifar10_eval(apply_distortions=False):
+def load_eval_batch(apply_distortions=False):
     '''
     Load the cifar10 test data set.
     '''
     data_dir = CIFAR10_CONFIG['DATA_DIR']
-    fnames = _get_cifar10_eval_files(data_dir)
+    fnames = _get_eval_files(data_dir)
 
     for f in fnames:
         if not tf.gfile.Exists(f):
@@ -107,15 +103,3 @@ def load_batch_cifar10_eval(apply_distortions=False):
                                               capacity=min_queue_examples + 3 * batch_size)
 
     return image_batch, tf.reshape(label_batch, [batch_size])
-
-    
-class ImageRecord:
-
-    def __init__(self, height, width=None, depth=3, float32image=None, label=None, key=None):
-        self.height = height
-        self.width = width if width else height # use height as width if image is square
-        self.depth = depth
-        self.float32image = float32image
-        self.label = label
-        self.key = key
-    

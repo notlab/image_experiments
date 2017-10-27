@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from loader import GEN_CONFIG, CIFAR10_CONFIG
+from models.cifar10.loader import GEN_CONFIG, CIFAR10_CONFIG
 
 def _get_tn_var(name, shape, stddev, reg=None):
     '''
@@ -62,7 +62,7 @@ def stock_cifar10(inputs):
     pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool2')
 
     # Fully connected 1
-    # reshapes input to [N, C0 * C0 * 64], outputs shape [384]
+    # reshapes input to [N, C0 * C0 * 64], outputs shape [N, 384]
     with tf.variable_scope('local3') as scope:
         # Move everything into depth so we can perform a single matrix multiply.
         reshape = tf.reshape(pool2, [int(GEN_CONFIG['BATCH_SIZE']), -1])
@@ -72,7 +72,7 @@ def stock_cifar10(inputs):
         local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
 
     # Fully connected 2
-    # input [348] -> output [192]
+    # input [N, 348] -> output [N, 192]
     with tf.variable_scope('local4') as scope:
         weights = _get_tn_var('weights', shape=[384, 192], stddev=0.04, reg=0.004)
         biases = tf.get_variable('biases', [192], initializer=tf.constant_initializer(0.1), dtype=tf.float32)
