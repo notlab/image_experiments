@@ -12,14 +12,23 @@ def _get_train_files(data_dir):
     Returns:
         a list containing paths to each of the cifar-10 training data files.
     '''
-    return [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
+    filenames = [ os.path.join(data_dir, 'data_batch_%d.bin' % i) for i in range(1, 6) ]
+    for f in filenames:
+        print(data_dir)
+        if not tf.gfile.Exists(f):
+            raise ValueError('Failed to find file: ' + f)
+    return filenames
 
 def _get_eval_files(data_dir):
     '''
     Returns:
         a list containing paths to each of the cifar-10 training data files.
     '''
-    return [ os.path.join(data_dir, 'test_batch.bin') ] 
+    filenames = [ os.path.join(data_dir, 'test_batch.bin') ]
+    for f in filenames:
+        if not tf.gfile.Exists(f):
+            raise ValueError('Failed to find file: ' + f)
+    return filenames
 
 def load_cifar10(file_queue, apply_distortions=True):
     height = int(CIFAR10_CONFIG['IMG_HEIGHT'])
@@ -56,7 +65,7 @@ def load_cifar10(file_queue, apply_distortions=True):
     return ImageRecord(height=height, width=width, depth=depth, float32image=float32image, label=label, key=key)
 
 def load_train_batch(apply_distortions=True):
-    data_dir = CIFAR10_CONFIG['DATA_DIR']
+    data_dir = os.path.join(ROOT_DIR, CIFAR10_CONFIG['DATA_DIR'])
     fnames = _get_train_files(data_dir)
 
     for f in fnames:
@@ -84,7 +93,7 @@ def load_eval_batch(apply_distortions=False):
     '''
     Load the cifar10 test data set.
     '''
-    data_dir = CIFAR10_CONFIG['DATA_DIR']
+    data_dir = os.path.join(ROOT_DIR, CIFAR10_CONFIG['DATA_DIR'])
     fnames = _get_eval_files(data_dir)
 
     for f in fnames:
