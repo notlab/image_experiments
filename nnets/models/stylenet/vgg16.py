@@ -1,246 +1,113 @@
-########################################################################################
-# Davi Frossard, 2016                                                                  #
-# VGG16 implementation in TensorFlow                                                   #
-# Details:                                                                             #
-# http://www.cs.toronto.edu/~frossard/post/vgg16/                                      #
-#                                                                                      #
-# Model from https://gist.github.com/ksimonyan/211839e770f7b538e2d8#file-readme-md     #
-# Weights from Caffe converted using https://github.com/ethereon/caffe-tensorflow      #
-########################################################################################
-
 import tensorflow as tf
 import numpy as np
 from scipy.misc import imread, imresize
 from imagenet_classes import class_names
 
+#             layer name --> filter shape
+VGG_ARCH = [ ('prep', None), # preprocess layer, subtract ImageNet image means
+             ('conv1_1', [3, 3, 3, 64]),
+             ('conv1_2', [3, 3, 64, 64]),
+             ('pool1', None),
+             ('conv2_1', [3, 3, 64, 128]),
+             ('conv2_2', [3, 3, 128, 128]),
+             ('pool2', None),
+             ('conv3_1', [3, 3, 128, 256]),
+             ('conv3_2', [3, 3, 256, 256]),
+             ('conv3_3', [3, 3, 256, 256]),
+             ('pool3', None),
+             ('conv4_1', [3, 3, 256, 512]),
+             ('conv4_2', [3, 3, 512, 512]),
+             ('conv4_3', [3, 3, 512, 512]),
+             ('pool4', None),
+             ('conv5_1', [3, 3, 512, 512]),
+             ('conv5_2', [3, 3, 512, 512]),
+             ('conv5_3', [3, 3, 512, 512]),
+             ('pool5', None),
+             ('fc1', [None, 4096]), # first fully connected layer must reshape pooling output
+             ('fc2', [4096, 4096]),
+             ('fc3', [4096, 1000]) ]
+
 
 class vgg16:
-    def __init__(self, imgs, weights=None, sess=None):
-        self.imgs = imgs
-        self.convlayers()
-        self.fc_layers()
-        self.probs = tf.nn.softmax(self.fc3l)
+
+    def __init__(self, image_placeholder, weights=None, sess=None):
+        self.net = image_placeholder
+        self.parameters = []
+        self._revive()
         if weights is not None and sess is not None:
             self._load_weights(weights, sess)
 
-
-    def convlayers(self):
-        self.parameters = []
-
-        # zero-mean input
+    def _revive(self):
+        for layer_arch in VGG_ARCH:
+            layer_name = layer_arch[0]
+            if layer_name[:4] == 'prep':
+                self._preprocess()
+            elif layer_name[:4] == 'conv':
+                self._conv_layer(layer_arch)
+            elif layer_name[:4] == 'pool':
+                self._pool_layer(layer_arch)
+            elif layer_name[:3] == 'fc1':
+                self._fc_transition(layer_arch)
+            elif layer_name[:3] in set('fc2', 'fc3'):
+                self._fc_layer(layer_arch)
+            else:
+                raise ValueError("Unknown layer type: %s" % layer_name)                
+                            
+    def _preprocess(self):
         with tf.name_scope('preprocess') as scope:
             mean = tf.constant([123.68, 116.779, 103.939], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
-            images = self.imgs-mean
+            self.net = self.net - mean
 
-        # conv1_1
-        with tf.name_scope('conv1_1') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 3, 64], dtype=tf.float32, stddev=1e-1),
+    def _conv_layer(self, layer_arch):
+        name, filter_shape = layer_arch[0], layer_arch[1]
+        bias_shape = filter_shape[-1]
+
+        with tf.name_scope(name) as scope:
+            kernel = tf.Variable(tf.truncated_normal(filter_shape, dtype=tf.float32, stddev=1e-1),
                                  trainable=False, name='weights')
-            conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[64], dtype=tf.float32),
+            biases = tf.Variable(tf.constant(0.0, shape=bias_shape, dtype=tf.float32),
                                  trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv1_1 = tf.nn.relu(out, name=scope)
+            self.net = tf.nn.conv2d(self.net, kernel, [1, 1, 1, 1], padding='SAME')
+            self.net = tf.nn.bias_add(conv, biases)
+            self.net = tf.nn.relu(self.net, name=scope)
             self.parameters += [kernel, biases]
 
-        # conv1_2
-        with tf.name_scope('conv1_2') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 64, 64], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv1_1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[64], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv1_2 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
+    def _pool_layer(self, layer_arch):
+        self.net = tf.nn.max_pool(self.net, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=layer_arch[0])
 
-        # pool1
-        self.pool1 = tf.nn.max_pool(self.conv1_2,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding='SAME',
-                               name='pool1')
+    def _fc_transition(self, layer_arch):
+        weight_shape = layer_arch[1]
+        # gets the dimension of the incoming connections, sets height of weight matrix
+        weight_shape[0] = int(np.prod(self.net.get_shape()[1:]))
+        bias_shape = weight_shape[1]
+        
+        # transition fc layer is also first fc layer, hence name is 'fc1'
+        with tf.name_scope('fc1') as scope: 
+            fc1_W = tf.Variable(tf.truncated_normal(weight_shape, dtype=tf.float32, stddev=1e-1),
+                                trainable=False,
+                                name='weights')
+            fc1_b = tf.Variable(tf.constant(1.0, shape=bias_shape, dtype=tf.float32),
+                                trainable=False,
+                                name='biases')
+            self.net = tf.reshape(self.net, [-1, shape[0]])
+            self.net = tf.nn.bias_add(tf.matmul(self.net, fc1_W), fc1_b)
+            self.net = tf.nn.relu(self.net)
+            self.parameters += [fc1_W, fc1_b]
 
-        # conv2_1
-        with tf.name_scope('conv2_1') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 64, 128], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.pool1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[128], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv2_1 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
+    def _fc_layer(self, layer_arch):
+        name, weight_shape = layer_arch[0], layer_arch[1]
+        bias_shape = weight_shape[1]
 
-        # conv2_2
-        with tf.name_scope('conv2_2') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 128, 128], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv2_1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[128], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv2_2 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # pool2
-        self.pool2 = tf.nn.max_pool(self.conv2_2,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding='SAME',
-                               name='pool2')
-
-        # conv3_1
-        with tf.name_scope('conv3_1') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 128, 256], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.pool2, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[256], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv3_1 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv3_2
-        with tf.name_scope('conv3_2') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 256, 256], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv3_1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[256], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv3_2 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv3_3
-        with tf.name_scope('conv3_3') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 256, 256], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv3_2, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[256], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv3_3 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # pool3
-        self.pool3 = tf.nn.max_pool(self.conv3_3,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding='SAME',
-                               name='pool3')
-
-        # conv4_1
-        with tf.name_scope('conv4_1') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 256, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.pool3, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv4_1 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv4_2
-        with tf.name_scope('conv4_2') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 512, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv4_1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv4_2 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv4_3
-        with tf.name_scope('conv4_3') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 512, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv4_2, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv4_3 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # pool4
-        self.pool4 = tf.nn.max_pool(self.conv4_3,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding='SAME',
-                               name='pool4')
-
-        # conv5_1
-        with tf.name_scope('conv5_1') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 512, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.pool4, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv5_1 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv5_2
-        with tf.name_scope('conv5_2') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 512, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv5_1, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv5_2 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # conv5_3
-        with tf.name_scope('conv5_3') as scope:
-            kernel = tf.Variable(tf.truncated_normal([3, 3, 512, 512], dtype=tf.float32, stddev=1e-1),
-                                 trainable=False, name='weights')
-            conv = tf.nn.conv2d(self.conv5_2, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = tf.Variable(tf.constant(0.0, shape=[512], dtype=tf.float32),
-                                 trainable=False, name='biases')
-            out = tf.nn.bias_add(conv, biases)
-            self.conv5_3 = tf.nn.relu(out, name=scope)
-            self.parameters += [kernel, biases]
-
-        # pool5
-        self.pool5 = tf.nn.max_pool(self.conv5_3,
-                               ksize=[1, 2, 2, 1],
-                               strides=[1, 2, 2, 1],
-                               padding='SAME',
-                               name='pool4')
-
-    def fc_layers(self):
-        # fc1
-        with tf.name_scope('fc1') as scope:
-            shape = int(np.prod(self.pool5.get_shape()[1:]))
-            fc1w = tf.Variable(tf.truncated_normal([shape, 4096], dtype=tf.float32, stddev=1e-1),
-                               trainable=False, name='weights')
-            fc1b = tf.Variable(tf.constant(1.0, shape=[4096], dtype=tf.float32),
-                               trainable=False, name='biases')
-            pool5_flat = tf.reshape(self.pool5, [-1, shape])
-            fc1l = tf.nn.bias_add(tf.matmul(pool5_flat, fc1w), fc1b)
-            self.fc1 = tf.nn.relu(fc1l)
-            self.parameters += [fc1w, fc1b]
-
-        # fc2
-        with tf.name_scope('fc2') as scope:
-            fc2w = tf.Variable(tf.truncated_normal([4096, 4096], dtype=tf.float32, stddev=1e-1),
-                               trainable=False, name='weights')
-            fc2b = tf.Variable(tf.constant(1.0, shape=[4096], dtype=tf.float32),
-                               trainable=False, name='biases')
-            fc2l = tf.nn.bias_add(tf.matmul(self.fc1, fc2w), fc2b)
-            self.fc2 = tf.nn.relu(fc2l)
-            self.parameters += [fc2w, fc2b]
-
-        # fc3
-        with tf.name_scope('fc3') as scope:
-            fc3w = tf.Variable(tf.truncated_normal([4096, 1000], dtype=tf.float32, stddev=1e-1),
-                               trainable=False, name='weights')
-            fc3b = tf.Variable(tf.constant(1.0, shape=[1000], dtype=tf.float32),
-                               trainable=False, name='biases')
-            self.fc3l = tf.nn.bias_add(tf.matmul(self.fc2, fc3w), fc3b)
-            self.parameters += [fc3w, fc3b]
+        with tf.name_scope(name) as scope:
+            fc2_W = tf.Variable(tf.truncated_normal(weight_shape, dtype=tf.float32, stddev=1e-1),
+                                trainable=False,
+                                name='weights')
+            fc2_b = tf.Variable(tf.constant(1.0, shape=bias_shape, dtype=tf.float32),
+                                trainable=False,
+                                name='biases')
+            self.net = tf.nn.bias_add(tf.matmul(self.net, fc2w), fc2b)
+            self.net = tf.nn.relu(self.net)
+            self.parameters += [fc2_W, fc2_b]
 
     def _load_weights(self, weight_file, sess):
         weights = np.load(weight_file)
