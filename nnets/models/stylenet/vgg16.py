@@ -28,37 +28,48 @@ VGG_ARCH = [ ('prep', None), # preprocess layer, subtract ImageNet image means
              ('fc3', [4096, 1000]) ]
 
 
-class vgg16:
+class Vgg16:
 
-    def __init__(self, image_placeholder, weights=None, sess=None):
-        self.net = image_placeholder
-        self.parameters = []
-        self._revive()
+    def __init__(self, depth, weights=None, sess=None):
+        '''
+        Parameters: 
+          depth: which layer to stop at when constructing vgg net. E.g. if "conv4_3" is passed,
+                 this will be the output layer of the constructed Vgg16. Later layers won't be added.
+          weights: the weights file from which to load pre-trained weights.
+          sess: A TensorFlow session object to use when loading weights. 
+        '''
+        self.depth = depth
         if weights is not None and sess is not None:
             self._load_weights(weights, sess)
 
-    def _revive(self):
+    def run_once(self, image):
         for layer_arch in VGG_ARCH:
             layer_name = layer_arch[0]
+            # stop building network if we've reached desired depth.
+            if layer_name == self.depth:
+                break
+            
             if layer_name[:4] == 'prep':
-                self._preprocess()
+                net = self._preprocess(image)
             elif layer_name[:4] == 'conv':
-                self._conv_layer(layer_arch)
+                net = self._conv_layer(layer_arch, net)
             elif layer_name[:4] == 'pool':
-                self._pool_layer(layer_arch)
+                net = self._pool_layer(layer_arch, net)
             elif layer_name[:3] == 'fc1':
-                self._fc_transition(layer_arch)
+                net = self._fc_transition(layer_arch, net)
             elif layer_name[:3] in set('fc2', 'fc3'):
-                self._fc_layer(layer_arch)
+                net = self._fc_layer(layer_arch, net)
             else:
-                raise ValueError("Unknown layer type: %s" % layer_name)                
+                raise ValueError("Unknown layer type: %s" % layer_name)
+
+            return net
                             
-    def _preprocess(self):
+    def _preprocess(self, image):
         with tf.name_scope('preprocess') as scope:
             mean = tf.constant([123.68, 116.779, 103.939], dtype=tf.float32, shape=[1, 1, 1, 3], name='img_mean')
-            self.net = self.net - mean
+            return image - mean
 
-    def _conv_layer(self, layer_arch):
+    def _conv_layer(self, layer_arch, net):
         name, filter_shape = layer_arch[0], layer_arch[1]
         bias_shape = filter_shape[-1]
 
@@ -67,18 +78,19 @@ class vgg16:
                                  trainable=False, name='weights')
             biases = tf.Variable(tf.constant(0.0, shape=bias_shape, dtype=tf.float32),
                                  trainable=False, name='biases')
-            self.net = tf.nn.conv2d(self.net, kernel, [1, 1, 1, 1], padding='SAME')
-            self.net = tf.nn.bias_add(conv, biases)
-            self.net = tf.nn.relu(self.net, name=scope)
-            self.parameters += [kernel, biases]
+            net = tf.nn.conv2d(net, kernel, [1, 1, 1, 1], padding='SAME')
+            net = tf.nn.bias_add(conv, biases)
+            net = tf.nn.relu(net, name=scope)
 
-    def _pool_layer(self, layer_arch):
-        self.net = tf.nn.max_pool(self.net, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=layer_arch[0])
+        return net
 
-    def _fc_transition(self, layer_arch):
+    def _pool_layer(self, layer_arch, net):
+        return tf.nn.max_pool(net, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME', name=layer_arch[0])
+
+    def _fc_transition(self, layer_arch, net):
         weight_shape = layer_arch[1]
         # gets the dimension of the incoming connections, sets height of weight matrix
-        weight_shape[0] = int(np.prod(self.net.get_shape()[1:]))
+        weight_shape[0] = int(np.prod(net.get_shape()[1:]))
         bias_shape = weight_shape[1]
         
         # transition fc layer is also first fc layer, hence name is 'fc1'
@@ -89,12 +101,13 @@ class vgg16:
             fc1_b = tf.Variable(tf.constant(1.0, shape=bias_shape, dtype=tf.float32),
                                 trainable=False,
                                 name='biases')
-            self.net = tf.reshape(self.net, [-1, shape[0]])
-            self.net = tf.nn.bias_add(tf.matmul(self.net, fc1_W), fc1_b)
-            self.net = tf.nn.relu(self.net)
-            self.parameters += [fc1_W, fc1_b]
+            net = tf.reshape(net, [-1, shape[0]])
+            net = tf.nn.bias_add(tf.matmul(net, fc1_W), fc1_b)
+            net = tf.nn.relu(net)
 
-    def _fc_layer(self, layer_arch):
+        return net
+
+    def _fc_layer(self, layer_arch, net):
         name, weight_shape = layer_arch[0], layer_arch[1]
         bias_shape = weight_shape[1]
 
@@ -105,9 +118,8 @@ class vgg16:
             fc2_b = tf.Variable(tf.constant(1.0, shape=bias_shape, dtype=tf.float32),
                                 trainable=False,
                                 name='biases')
-            self.net = tf.nn.bias_add(tf.matmul(self.net, fc2w), fc2b)
-            self.net = tf.nn.relu(self.net)
-            self.parameters += [fc2_W, fc2_b]
+            net = tf.nn.bias_add(tf.matmul(net, fc2w), fc2b)
+            net = tf.nn.relu(net)
 
     def _load_weights(self, weight_file, sess):
         weights = np.load(weight_file)
