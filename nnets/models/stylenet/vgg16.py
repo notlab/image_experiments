@@ -1,7 +1,12 @@
+import os
+
 import tensorflow as tf
 import numpy as np
 from scipy.misc import imread, imresize
-from imagenet_classes import class_names
+
+from models.common import ROOT_DIR, CONFIG
+
+STYLENET_CONFIG = CONFIG['STYLENET']
 
 #             layer name --> filter shape
 VGG_ARCH = [ ('prep', None), # preprocess layer, subtract ImageNet image means
@@ -23,14 +28,14 @@ VGG_ARCH = [ ('prep', None), # preprocess layer, subtract ImageNet image means
              ('conv5_2', [3, 3, 512, 512]),
              ('conv5_3', [3, 3, 512, 512]),
              ('pool5', None),
-             ('fc1', [None, 4096]), # first fully connected layer must reshape pooling output
-             ('fc2', [4096, 4096]),
-             ('fc3', [4096, 1000]) ]
+             ('fc6', [None, 4096]), # first fully connected layer must reshape pooling output
+             ('fc7', [4096, 4096]),
+             ('fc8', [4096, 1000]) ]
 
 
 class Vgg16:
 
-    def __init__(self, depth, weights=None, sess=None):
+    def __init__(self, depth, load_weights=False, sess=None):
         '''
         Parameters: 
           depth: which layer to stop at when constructing vgg net. E.g. if "conv4_3" is passed,
@@ -39,8 +44,9 @@ class Vgg16:
           sess: A TensorFlow session object to use when loading weights. 
         '''
         self.depth = depth
-        if weights is not None and sess is not None:
-            self._load_weights(weights, sess)
+        self.weights = {}
+        if load_weights and sess is not None:
+            self._load_weights(sess)
 
     def run_once(self, image):
         for layer_arch in VGG_ARCH:
@@ -55,9 +61,9 @@ class Vgg16:
                 net = self._conv_layer(layer_arch, net)
             elif layer_name[:4] == 'pool':
                 net = self._pool_layer(layer_arch, net)
-            elif layer_name[:3] == 'fc1':
+            elif layer_name[:3] == 'fc6':
                 net = self._fc_transition(layer_arch, net)
-            elif layer_name[:3] in set('fc2', 'fc3'):
+            elif layer_name[:3] in set('fc7', 'fc8'):
                 net = self._fc_layer(layer_arch, net)
             else:
                 raise ValueError("Unknown layer type: %s" % layer_name)
@@ -121,9 +127,9 @@ class Vgg16:
             net = tf.nn.bias_add(tf.matmul(net, fc2w), fc2b)
             net = tf.nn.relu(net)
 
-    def _load_weights(self, weight_file, sess):
-        weights = np.load(weight_file)
-        keys = sorted(weights.keys())
+    def _load_weights(self, sess):
+        weights_dir = os.path.join(ROOT_DIR, STYLENET_CONFIG['CHECKPOINT_FILE'])
+        loaded_weights = np.load(weights_dir)
+        keys = sorted(loaded_weights.keys())
         for i, k in enumerate(keys):
-            print i, k, np.shape(weights[k])
-            sess.run(self.parameters[i].assign(weights[k]))
+            self.weights[k] = loaded_weights[k]

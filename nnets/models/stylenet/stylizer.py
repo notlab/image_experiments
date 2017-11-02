@@ -10,29 +10,29 @@ def Stylizer:
         self.style_image = style_image
         self.vgg = vgg
 
-    def train(self, output, global_step):
-        loss = self.total_loss(output)
+    def train(self, cur_train_img, global_step):
+        loss = self.total_loss(cur_train_img)
         lr = tf.train.exponential_decay(0.1, global_step, decay_steps, 0.1, staircase=True)
         opt = tf.train.GradientDescentOptimizer(lr)
         grads = opt.compute_gradients(total_loss)
         apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
         return apply_gradient_op
         
-    def total_loss(self, output):
-        activations = self.vgg.run_once(output)
+    def total_loss(self, cur_train_img):
+        activations = self.vgg.run_once(cur_train_img)
         style, target = self.vgg.run_once(self.target_image), self.vgg.run_once(self.style_image)
         total_loss = tf.add(content_loss(target, activations), style_loss(style, activations))
 
-    def content_loss(self, target, style):
-        dim = np.prod(style.shape[1:])
+    def content_loss(self, target, activations):
+        dim = np.prod(target.shape[1:])
         target = tf.reshape(target, [-1, dim])
-        style = tf.reshape(style, [-1, dim])
-        return tf.losses.mean_squared_error(target, style)
+        style = tf.reshape(activations, [-1, dim])
+        return tf.losses.mean_squared_error(target, activations)
 
-    def style_loss(self, target, style):
-        tar_gram = self.gram_matrix(target)
+    def style_loss(self, style, activations):
         sty_gram = self.gram_matrix(style)
-        return tf.losses.mean_squared_error(tar_gram, sty_gram)
+        act_gram = self.gram_matrix(activations)
+        return tf.losses.mean_squared_error(sty_gram, act_gram)
 
     def gram_matrix(self, variable):
         batch_size, height, width, channels = tf.unstack(tf.shape(variable))
